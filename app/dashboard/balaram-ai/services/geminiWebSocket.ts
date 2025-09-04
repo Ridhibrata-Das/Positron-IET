@@ -1,6 +1,7 @@
 import { Base64 } from 'js-base64';
 import { TranscriptionService } from './transcriptionService';
 import { pcmToWav } from '../utils/audio';
+import { getCurrentSensorData, getFormattedSensorDataForAI, getGeminiVariables, refreshAllSensorData } from './sensorDataService';
 
 const MODEL = "models/gemini-2.0-flash-exp";
 const API_KEY = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
@@ -83,7 +84,13 @@ export class GeminiWebSocket {
     };
   }
 
-  private sendInitialSetup() {
+  private async sendInitialSetup() {
+    try {
+      await refreshAllSensorData();
+    } catch (e) {
+      console.warn('[WebSocket] Sensor refresh failed, using last known values');
+    }
+    const vars = getGeminiVariables();
     const setupMessage = {
       setup: {
         model: MODEL,
@@ -93,7 +100,10 @@ export class GeminiWebSocket {
         system_instruction: {
           parts: [
             {
-              text: "Speak with an helpful, funny and wise tone, that is very sportive, optimistic and can say no to the user if required. You will ask the user for the query he have. You  must sound natural in the language you are speaking, no repeating questions, no uttering the users name everytime, and try not to give a very generic answer absolutely, give as in depth as you can, but bit by bit, not at once. Do not speak more than 40 words at a time. Add more vocalisation of thinking to find a solution, include more 'ahh' and 'uhh' sounds in the speech. Now imagine yourself as an agriculture expert in India, solving their problems"
+              text: `Speak with a helpful, funny and wise tone, that is very sportive, optimistic and can say no to the user if required. YOU WILL ALWAYS BE CONFIDENT TO WHAT YOU SAY. You will ask the user for the query he have. You must sound natural in the language you are speaking, no repeating questions, no uttering the users name everytime, and try not to give a very generic answer absolutely, give as in depth as you can, but bit by bit, not at once. Do not speak more than 40 words at a time. Add more vocalisation of thinking to find a solution, include more 'ahh' and 'uhh' sounds in the speech. Now imagine yourself as an agriculture expert in India, solving their problems. YOU MUST ALWAYS TRY TO CONVERSE IN THE LANGUAGE THE USER IS TALKING IN, OR ASKS TO SPEAK. You have access to real-time sensor data including: Location --> ${vars.locationName}, Humidity --> ${vars.humidity}%, Soil Moisture --> ${vars.soilMoisture}%, Nitrogen --> ${vars.npkNitrogen}ppm N, Phosphorus --> ${vars.npkPhosphorus}ppm P, Potassium --> ${vars.npkPotassium}ppm K, Avg NPK: ${vars.npkAverage}ppm. Based on these values fetched, and taking into account about these values and the location, and the crop asked by the user, you must give personalized agricultural suggestions and recommendations. YOU WILL SAY THE SENSOR DATA YOU GET INTO WORDS AND NOT IN NUMBERS`
+            },
+            {
+              text: `SENSOR_CONTEXT_JSON: ${JSON.stringify(vars)}`
             }
           ]
         }

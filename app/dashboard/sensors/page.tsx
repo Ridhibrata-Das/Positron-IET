@@ -13,7 +13,7 @@ import {
   ResponsiveContainer,
   Brush
 } from 'recharts';
-import { fetchThingSpeakHistory, type ThingSpeakData } from '@/lib/thingspeak';
+import { fetchThingSpeakHistory, fetchNPKData, type ThingSpeakData, type NPKData } from '@/lib/thingspeak';
 import { toast } from 'sonner';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
@@ -27,6 +27,7 @@ const timeRanges = [
 
 export default function SensorsPage() {
   const [sensorHistory, setSensorHistory] = useState<ThingSpeakData[]>([]);
+  const [npkHistory, setNpkHistory] = useState<NPKData[]>([]);
   const [selectedRange, setSelectedRange] = useState('24h');
   const [isLoading, setIsLoading] = useState(true);
 
@@ -34,8 +35,12 @@ export default function SensorsPage() {
     const fetchData = async () => {
       try {
         setIsLoading(true);
-        const historyData = await fetchThingSpeakHistory(selectedRange);
+        const [historyData, npkData] = await Promise.all([
+          fetchThingSpeakHistory(selectedRange),
+          fetchNPKData(selectedRange)
+        ]);
         setSensorHistory(historyData);
+        setNpkHistory(npkData);
       } catch (error) {
         console.error('Error fetching sensor data:', error);
         toast.error('Failed to fetch sensor data. Please try again later.');
@@ -179,6 +184,61 @@ export default function SensorsPage() {
                   dot={false}
                 />
                 <Brush dataKey="time" height={30} stroke="#ea580c" />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+
+        {/* NPK Chart */}
+        <Card className="p-6">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-semibold">NPK Sensor Data</h2>
+            <Select value={selectedRange} onValueChange={setSelectedRange}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Select time range" />
+              </SelectTrigger>
+              <SelectContent>
+                {timeRanges.map((range) => (
+                  <SelectItem key={range.value} value={range.value}>
+                    {range.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="h-[300px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={npkHistory}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="time" />
+                <YAxis />
+                <Tooltip />
+                <Legend />
+                <Line
+                  type="monotone"
+                  dataKey="nitrogen"
+                  name="Nitrogen (N)"
+                  stroke="#2563EB"
+                  strokeWidth={2}
+                  dot={false}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="phosphorus"
+                  name="Phosphorus (P)"
+                  stroke="#DC2626"
+                  strokeWidth={2}
+                  dot={false}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="potassium"
+                  name="Potassium (K)"
+                  stroke="#9333EA"
+                  strokeWidth={2}
+                  dot={false}
+                />
+                <Brush dataKey="time" height={30} stroke="#6B7280" />
               </LineChart>
             </ResponsiveContainer>
           </div>

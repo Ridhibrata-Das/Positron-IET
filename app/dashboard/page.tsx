@@ -5,9 +5,9 @@ import { Card } from '@/components/ui/card';
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { fetchSoilMoistureData, fetchThingSpeakHistory } from "@/lib/thingspeak";
+import { fetchSoilMoistureData, fetchThingSpeakHistory, fetchNPKData, fetchCurrentNPK } from "@/lib/thingspeak";
 import { fetchWeatherData } from "@/lib/weather";
-import type { SoilMoistureData, ThingSpeakData } from "@/lib/thingspeak";
+import type { SoilMoistureData, ThingSpeakData, NPKData } from "@/lib/thingspeak";
 import type { WeatherData } from "@/lib/weather";
 import { cn } from "@/lib/utils";
 
@@ -116,6 +116,12 @@ export default function DashboardPage() {
     soilMoisture: 0,
     time: ''
   });
+  const [npkData, setNpkData] = useState<NPKData>({
+    nitrogen: 0,
+    phosphorus: 0,
+    potassium: 0,
+    time: ''
+  });
   const [location, setLocation] = useState({
     latitude: 22.5626,
     longitude: 88.363,
@@ -123,9 +129,14 @@ export default function DashboardPage() {
   });
   const [isLocating, setIsLocating] = useState(false);
   const [historyData, setHistoryData] = useState<ThingSpeakData[]>([]);
+  const [npkHistoryData, setNpkHistoryData] = useState<NPKData[]>([]);
   const [selectedRange, setSelectedRange] = useState('24h');
   const [isLoading, setIsLoading] = useState(true);
   const [soilMoistureTrend, setSoilMoistureTrend] = useState<{ change: number; increasing: boolean }>({
+    change: 0,
+    increasing: true
+  });
+  const [npkTrend, setNpkTrend] = useState<{ change: number; increasing: boolean }>({
     change: 0,
     increasing: true
   });
@@ -143,6 +154,15 @@ export default function DashboardPage() {
       setSoilMoistureData(currentData);
       setHistoryData(history);
       setSoilMoistureTrend(trend);
+
+      // Fetch NPK data
+      const [npkHistory, currentNPK] = await Promise.all([
+        fetchNPKData(selectedRange),
+        fetchCurrentNPK()
+      ]);
+      setNpkHistoryData(npkHistory);
+      setNpkData(currentNPK.currentData);
+      setNpkTrend(currentNPK.trend);
 
       // Check soil moisture for alerts
       if (currentData.soilMoisture > 80 || currentData.soilMoisture < 20) {
@@ -390,14 +410,19 @@ export default function DashboardPage() {
         setWeatherData(weather);
 
         // Fetch ThingSpeak data (current and history)
-        const [thingSpeakHistory, soilMoistureResult] = await Promise.all([
+        const [thingSpeakHistory, soilMoistureResult, npkHistory, currentNPK] = await Promise.all([
           fetchThingSpeakHistory(selectedRange),
-          fetchSoilMoistureData(selectedRange)
+          fetchSoilMoistureData(selectedRange),
+          fetchNPKData(selectedRange),
+          fetchCurrentNPK()
         ]);
 
         setHistoryData(thingSpeakHistory);
         setSoilMoistureData(soilMoistureResult.currentData);
         setSoilMoistureTrend(soilMoistureResult.trend);
+        setNpkHistoryData(npkHistory);
+        setNpkData(currentNPK.currentData);
+        setNpkTrend(currentNPK.trend);
 
       } catch (error) {
         console.error('Error fetching data:', error);
@@ -464,8 +489,64 @@ export default function DashboardPage() {
     </Card>
   );
 
+  const renderNPKGraph = (data: NPKData[], unit: string) => (
+    <Card className="p-6">
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-xl font-semibold">NPK Sensor Data</h2>
+        <Select value={selectedRange} onValueChange={setSelectedRange}>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="Select time range" />
+          </SelectTrigger>
+          <SelectContent>
+            {timeRanges.map((range) => (
+              <SelectItem key={range.value} value={range.value}>
+                {range.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="h-[300px]">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={data}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="time" />
+            <YAxis />
+            <Tooltip />
+            <Legend />
+            <Line
+              type="monotone"
+              dataKey="nitrogen"
+              name="Nitrogen (N)"
+              stroke="#2563EB"
+              strokeWidth={2}
+              dot={false}
+            />
+            <Line
+              type="monotone"
+              dataKey="phosphorus"
+              name="Phosphorus (P)"
+              stroke="#DC2626"
+              strokeWidth={2}
+              dot={false}
+            />
+            <Line
+              type="monotone"
+              dataKey="potassium"
+              name="Potassium (K)"
+              stroke="#9333EA"
+              strokeWidth={2}
+              dot={false}
+            />
+            <Brush dataKey="time" height={30} stroke="#6B7280" />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+    </Card>
+  );
+
   const renderSensorCards = () => (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+    <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
       <SensorCard
         title="Temperature"
         value={weatherData.temperature?.toFixed(1)}
@@ -481,6 +562,12 @@ export default function DashboardPage() {
         value={soilMoistureData.soilMoisture?.toFixed(1)}
         unit="%"
         trend={soilMoistureTrend}
+      />
+      <SensorCard
+        title="NPK Average"
+        value={((npkData.nitrogen + npkData.phosphorus + npkData.potassium) / 3).toFixed(1)}
+        unit="ppm"
+        trend={npkTrend}
       />
     </div>
   );
@@ -523,9 +610,52 @@ export default function DashboardPage() {
           
           {/* Humidity Graph */}
           {renderGraph('humidity', historyData, '#16A34A', '%')}
+
+          {/* NPK Graph */}
+          {renderNPKGraph(npkHistoryData, 'ppm')}
         </div>
 
-        {/* ElevenLabs Widget */}
+        {/* Omnidim Call Button (large circular) below graphs */}
+        <div className="flex justify-center mt-6 mb-2">
+          <button
+            onClick={async () => {
+              const input = window.prompt('Enter 10-digit phone number (India):');
+              if (!input) return;
+              const digitsOnly = input.replace(/\D/g, '');
+              if (digitsOnly.length !== 10) {
+                toast.error('Please enter a valid 10-digit number');
+                return;
+              }
+              const e164 = `+91${digitsOnly}`;
+              const res = await fetch('/api/omnidim/call', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  to: e164,
+                  call_context: {
+                    customer_name: 'Dashboard User',
+                    account_id: 'DASH-TEST-001',
+                    priority: 'high'
+                  }
+                })
+              });
+              if (res.ok) {
+                toast.success("AI call initiated");
+              } else {
+                const msg = await res.json().catch(() => ({}));
+                toast.error(msg?.error || "Failed to start call");
+              }
+            }}
+            aria-label="Call AI Agent"
+            className="h-24 w-24 rounded-full bg-green-500 hover:bg-green-600 text-white shadow-xl flex items-center justify-center transition-colors"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-10 w-10">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M2 5a2 2 0 012-2h2.28a2 2 0 011.94 1.515l.56 2.24a2 2 0 01-.72 2.117l-1.2.9a16 16 0 007.2 7.2l.9-1.2a2 2 0 012.117-.72l2.24.56A2 2 0 0121 17.72V20a2 2 0 01-2 2h-1C9.82 22 2 14.18 2 5V5z" />
+            </svg>
+          </button>
+        </div>
+
+        {/* ElevenLabs Widget (call button removed to keep single CTA) */}
         <div className="mt-8">
           <Card className="p-6">
             <h2 className="text-xl font-semibold mb-4">AI Assistant</h2>
@@ -534,6 +664,8 @@ export default function DashboardPage() {
             </div>
           </Card>
         </div>
+
+        {/* Debug card removed per request */}
       </div>
     </div>
   );
